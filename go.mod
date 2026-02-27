@@ -1,4 +1,4 @@
-module github.com/goviking/goviking
+module github.com/jqnote/goviking
 
 go 1.25.3
 
