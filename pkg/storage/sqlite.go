@@ -819,11 +819,11 @@ func buildFilterClause(filter *Filter) (string, []interface{}) {
 		case "prefix":
 			// Prefix match (LIKE)
 			clauses = append(clauses, fmt.Sprintf("%s LIKE ?", cond.Field))
-			args = append(args, cond.prefix+"%")
+			args = append(args, cond.Prefix+"%")
 		case "contains":
 			// Contains substring
 			clauses = append(clauses, fmt.Sprintf("%s LIKE ?", cond.Field))
-			args = append(args, "%"+cond.substr+"%")
+			args = append(args, "%"+cond.Substr+"%")
 		}
 	}
 

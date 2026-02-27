@@ -34,6 +34,11 @@ func New() *Server {
 	return s
 }
 
+// SetAddr sets the server address.
+func (s *Server) SetAddr(addr string) {
+	s.server.Addr = addr
+}
+
 // setupRoutes sets up the HTTP routes.
 func (s *Server) setupRoutes() {
 	// Health check

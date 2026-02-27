@@ -11,16 +11,16 @@ import (
 
 // FilterCondition represents a filter condition for queries.
 type FilterCondition struct {
-	Op      string      `json:"op"` // "and", "or", "must", "range", "prefix", "contains"
-	Field   string      `json:"field,omitempty"`
-	conds   interface{} `json:"conds,omitempty"`
-	prefix  string      `json:"prefix,omitempty"`
-	substr  string      `json:"substring,omitempty"`
-	GTE     interface{} `json:"gte,omitempty"`
-	GT      interface{} `json:"gt,omitempty"`
-	LTE     interface{} `json:"lte,omitempty"`
-	LT      interface{} `json:"lt,omitempty"`
-	Value   interface{} `json:"value,omitempty"`
+	Op       string      `json:"op"` // "and", "or", "must", "range", "prefix", "contains"
+	Field    string      `json:"field,omitempty"`
+	Conds    interface{} `json:"conds,omitempty"`
+	Prefix   string      `json:"prefix,omitempty"`
+	Substr   string      `json:"substring,omitempty"`
+	GTE      interface{} `json:"gte,omitempty"`
+	GT       interface{} `json:"gt,omitempty"`
+	LTE      interface{} `json:"lte,omitempty"`
+	LT       interface{} `json:"lt,omitempty"`
+	Value    interface{} `json:"value,omitempty"`
 }
 
 // Filter represents filter conditions for queries.
