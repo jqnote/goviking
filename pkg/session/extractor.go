@@ -12,6 +12,10 @@ import (
 type MemoryExtractor interface {
 	// Extract extracts memories from session messages.
 	Extract(ctx context.Context, messages []*Message) ([]*ExtractedMemory, error)
+	// ExtractByCategory extracts memories for a specific category.
+	ExtractByCategory(ctx context.Context, messages []*Message, category Category) ([]*ExtractedMemory, error)
+	// ExtractAllCategories extracts memories from all categories.
+	ExtractAllCategories(ctx context.Context, messages []*Message) (map[Category][]*ExtractedMemory, error)
 }
 
 // ExtractedMemory represents an extracted memory.
@@ -25,9 +29,10 @@ type ExtractedMemory struct {
 
 // ExtractorConfig holds configuration for memory extraction.
 type ExtractorConfig struct {
-	MinImportance float64   // Minimum importance threshold (0-1)
-	MaxMemories   int       // Maximum memories to extract per batch
-	SessionID     string    // Session ID for extracted memories
+	MinImportance  float64   // Minimum importance threshold (0-1)
+	MaxMemories    int       // Maximum memories to extract per batch
+	SessionID      string    // Session ID for extracted memories
+	UseNewCategories bool    // Use new 6-category system (profile, preference, entity, event, case, pattern)
 }
 
 // DefaultExtractorConfig returns default extractor configuration.

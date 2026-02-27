@@ -177,12 +177,16 @@ func (c *Client) CreateSession(ctx context.Context, req *Session) (*Session, err
 }
 
 // GetSession retrieves a session by ID.
-func (c *Client) GetSession(ctx context.Context, id string) (*Session, error) {
-	resp, err := c.doRequest(ctx, "GET", fmt.Sprintf("/api/v1/sessions/%s", id), nil)
+func (c *Client) GetSession(ctx context.Context, id string, mustExist bool) (*Session, error) {
+	resp, err := c.doRequest(ctx, "GET", fmt.Sprintf("/api/v1/sessions/%s?must_exist=%v", id, mustExist), nil)
 	if err != nil {
 		return nil, err
 	}
 	defer resp.Body.Close()
+
+	if resp.StatusCode == http.StatusNotFound && !mustExist {
+		return nil, nil
+	}
 
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("get session failed: %d", resp.StatusCode)
@@ -194,6 +198,23 @@ func (c *Client) GetSession(ctx context.Context, id string) (*Session, error) {
 	}
 
 	return &result, nil
+}
+
+// SessionExists checks if a session exists.
+func (c *Client) SessionExists(ctx context.Context, sessionID string) (bool, error) {
+	resp, err := c.doRequest(ctx, "HEAD", fmt.Sprintf("/api/v1/sessions/%s", sessionID), nil)
+	if err != nil {
+		return false, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode == http.StatusOK {
+		return true, nil
+	}
+	if resp.StatusCode == http.StatusNotFound {
+		return false, nil
+	}
+	return false, fmt.Errorf("check session exists failed: %d", resp.StatusCode)
 }
 
 // ListSessions lists all sessions.

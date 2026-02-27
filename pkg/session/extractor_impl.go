@@ -13,14 +13,23 @@ import (
 	"github.com/jqnote/goviking/pkg/llm"
 )
 
-// Memory categories
+// Memory categories (new 6-category system)
 const (
+	CategoryProfile   Category = "profile"   // User profile information
 	CategoryPreference Category = "preference" // User preferences
-	CategoryFact      Category = "fact"       // Factual information
-	CategorySkill    Category = "skill"       // Learned skills
-	CategoryGoal     Category = "goal"         // Goals and objectives
-	CategoryContext  Category = "context"       // Context information
-	CategoryOther   Category = "other"         // Other information
+	CategoryEntity    Category = "entity"    // Entities mentioned
+	CategoryEvent    Category = "event"    // Events occurred
+	CategoryCase     Category = "case"     // Cases/scenarios
+	CategoryPattern  Category = "pattern"  // Patterns detected
+)
+
+// Legacy categories (for backward compatibility)
+const (
+	CategoryFact     Category = "fact"     // Factual information
+	CategorySkill    Category = "skill"    // Learned skills
+	CategoryGoal     Category = "goal"     // Goals and objectives
+	CategoryContext  Category = "context"  // Context information
+	CategoryOther    Category = "other"    // Other information
 )
 
 // Category represents the category of extracted memory.
@@ -217,6 +226,174 @@ Return a JSON array of memories. Example:
 
 Only return the JSON array, no other text.`
 
+// CategoryWeights defines importance weights for each category.
+var CategoryWeights = map[Category]float64{
+	CategoryProfile:   0.9,  // User profile is highly important
+	CategoryPreference: 0.8,  // Preferences are important
+	CategoryEntity:    0.7,  // Entities are moderately important
+	CategoryEvent:    0.6,  // Events are less important
+	CategoryCase:     0.7,  // Cases are moderately important
+	CategoryPattern:  0.5,  // Patterns are less critical
+}
+
+// GetCategoryImportance returns the base importance weight for a category.
+func GetCategoryImportance(cat Category) float64 {
+	if weight, ok := CategoryWeights[cat]; ok {
+		return weight
+	}
+	return 0.5 // Default weight
+}
+
+// CategoryPrompts contains prompts for each memory category.
+var CategoryPrompts = map[Category]string{
+	CategoryProfile: `Extract user profile information from the conversation:
+- Name, identity, role
+- Professional background
+- Skills and expertise
+- Personal characteristics
+
+Conversation:
+%s
+
+Return a JSON array with profile information.`,
+
+	CategoryPreference: `Extract user preferences from the conversation:
+- Communication style preferences
+- Topic interests
+- Working style preferences
+- Tool and technology preferences
+
+Conversation:
+%s
+
+Return a JSON array with preference information.`,
+
+	CategoryEntity: `Extract entities mentioned in the conversation:
+- People names
+- Company/organization names
+- Product names
+- Project names
+- Technical terms
+
+Conversation:
+%s
+
+Return a JSON array with entity information.`,
+
+	CategoryEvent: `Extract events that occurred in the conversation:
+- Meetings or discussions
+- Decisions made
+- Actions taken
+- Milestones reached
+
+Conversation:
+%s
+
+Return a JSON array with event information.`,
+
+	CategoryCase: `Extract cases or scenarios from the conversation:
+- Problem descriptions
+- Use cases
+- Examples mentioned
+- Situations described
+
+Conversation:
+%s
+
+Return a JSON array with case information.`,
+
+	CategoryPattern: `Extract patterns detected in the conversation:
+- Behavioral patterns
+- Communication patterns
+- Common themes
+- Recurring topics
+
+Conversation:
+%s
+
+Return a JSON array with pattern information.`,
+}
+
+// ExtractByCategory extracts memories for a specific category.
+func (e *LLMExtractor) ExtractByCategory(ctx context.Context, messages []*Message, category Category) ([]*ExtractedMemory, error) {
+	if len(messages) == 0 {
+		return nil, nil
+	}
+
+	promptTemplate, ok := CategoryPrompts[category]
+	if !ok {
+		// Fall back to default prompt
+		promptTemplate = defaultMemoryExtractionPrompt
+	}
+
+	// Format messages for the prompt
+	content := e.formatMessages(messages)
+	prompt := fmt.Sprintf(promptTemplate, content)
+
+	// Call LLM
+	resp, err := e.client.Chat(ctx, &llm.ChatRequest{
+		Model:       "",
+		Temperature: 0.3,
+		Messages: []llm.Message{
+			{Role: llm.RoleSystem, Content: "You are a memory extraction assistant. Extract important information and return a JSON array."},
+			{Role: llm.RoleUser, Content: prompt},
+		},
+		MaxTokens: 2000,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to extract %s memories: %w", category, err)
+	}
+
+	if len(resp.Choices) == 0 {
+		return nil, nil
+	}
+
+	responseContent := resp.Choices[0].Message.Content
+	memories, err := e.parseMemoryResponse(responseContent)
+	if err != nil {
+		memories, err = e.extractJSONFromMarkdown(responseContent)
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse %s memory response: %w", category, err)
+		}
+	}
+
+	// Apply category-specific importance weighting
+	baseWeight := GetCategoryImportance(category)
+	var filtered []*ExtractedMemory
+	for _, m := range memories {
+		m.Category = string(category)
+		m.Importance = m.Importance * baseWeight // Apply category weight
+		if m.Importance >= e.config.MinImportance {
+			m.SessionID = e.config.SessionID
+			m.CreatedAt = time.Now().UTC()
+			filtered = append(filtered, m)
+			if len(filtered) >= e.config.MaxMemories {
+				break
+			}
+		}
+	}
+
+	return filtered, nil
+}
+
+// ExtractAllCategories extracts memories from all categories.
+func (e *LLMExtractor) ExtractAllCategories(ctx context.Context, messages []*Message) (map[Category][]*ExtractedMemory, error) {
+	results := make(map[Category][]*ExtractedMemory)
+
+	// Extract from each category
+	for _, cat := range []Category{CategoryProfile, CategoryPreference, CategoryEntity, CategoryEvent, CategoryCase, CategoryPattern} {
+		memories, err := e.ExtractByCategory(ctx, messages, cat)
+		if err != nil {
+			return nil, fmt.Errorf("failed to extract %s: %w", cat, err)
+		}
+		if len(memories) > 0 {
+			results[cat] = memories
+		}
+	}
+
+	return results, nil
+}
+
 // LLMSummarizer uses LLM to create summaries of session content.
 type LLMSummarizer struct {
 	client llm.Provider
@@ -353,7 +530,7 @@ type AutoExtractor struct {
 // SummarizerExtractor combines summarization and extraction.
 type SummarizerExtractor interface {
 	Summarizer
-	MemoryExtractor
+	Extract(ctx context.Context, messages []*Message) ([]*ExtractedMemory, error)
 }
 
 // NewAutoExtractor creates a new automatic memory extractor.

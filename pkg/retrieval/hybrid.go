@@ -9,6 +9,7 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"time"
 )
 
 // KeywordSearch performs keyword-based search using BM25 or simple term matching.
@@ -280,4 +281,149 @@ func (hs *HybridSearch) SearchWithAlpha(ctx context.Context, query string, limit
 	defer func() { hs.alpha = oldAlpha }()
 
 	return hs.Search(ctx, query, limit, filter)
+}
+
+// HybridRetriever combines semantic and hotness scoring for retrieval.
+type HybridRetriever struct {
+	semanticSearch *SemanticSearch
+	hotnessScorer *HotnessScorer
+	alpha         float64 // weight for semantic score (1-alpha for hotness)
+}
+
+// NewHybridRetriever creates a new HybridRetriever.
+func NewHybridRetriever(semanticSearch *SemanticSearch, hotnessScorer *HotnessScorer, alpha float64) *HybridRetriever {
+	if alpha == 0 {
+		alpha = 0.8 // Default: 80% semantic, 20% hotness
+	}
+	return &HybridRetriever{
+		semanticSearch: semanticSearch,
+		hotnessScorer: hotnessScorer,
+		alpha:         alpha,
+	}
+}
+
+// CombineScores combines semantic and hotness scores.
+func (hr *HybridRetriever) CombineScores(semanticScore, hotnessScore float64) float64 {
+	// Weighted combination: alpha * semantic + (1-alpha) * hotness
+	return hr.alpha*semanticScore + (1-hr.alpha)*hotnessScore
+}
+
+// Retrieve performs hybrid retrieval with hotness scoring.
+func (hr *HybridRetriever) Retrieve(ctx context.Context, query string, sessionID string, accessCount int, lastAccessTime time.Time, limit int) ([]SearchResult, error) {
+	// Get semantic results
+	var results []SearchResult
+	var err error
+
+	if hr.semanticSearch != nil {
+		results, err = hr.semanticSearch.Search(ctx, query, limit*2, nil)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	// Calculate hotness score
+	hotnessScore := 0.0
+	if hr.hotnessScorer != nil {
+		hotnessScore = hr.hotnessScorer.CalculateHotness(accessCount, lastAccessTime)
+	}
+
+	// Combine scores
+	for i := range results {
+		results[i].Score = hr.CombineScores(results[i].Score, hotnessScore)
+	}
+
+	// Sort by combined score
+	sort.Slice(results, func(i, j int) bool {
+		return results[i].Score > results[j].Score
+	})
+
+	if limit > 0 && len(results) > limit {
+		results = results[:limit]
+	}
+
+	return results, nil
+}
+
+// Reranker re-ranks search results using cross-encoder.
+type Reranker struct {
+	client  interface{} // LLM provider for cross-encoder scoring
+	enabled bool
+}
+
+// NewReranker creates a new Reranker.
+func NewReranker(enabled bool) *Reranker {
+	return &Reranker{
+		enabled: enabled,
+	}
+}
+
+// Rerank re-ranks search results.
+func (r *Reranker) Rerank(ctx context.Context, query string, results []SearchResult) ([]SearchResult, error) {
+	if !r.enabled || len(results) == 0 {
+		return results, nil
+	}
+
+	// Simple cross-encoder reranking: re-score each result with the query
+	// In a real implementation, this would use a cross-encoder model
+	var reranked []SearchResult
+	for _, result := range results {
+		// Calculate relevance score (simplified)
+		relevance := r.calculateRelevance(query, result)
+		result.Score = result.Score * 0.5 + relevance * 0.5
+		reranked = append(reranked, result)
+	}
+
+	// Sort by new scores
+	sort.Slice(reranked, func(i, j int) bool {
+		return reranked[i].Score > reranked[j].Score
+	})
+
+	return reranked, nil
+}
+
+// calculateRelevance calculates relevance between query and result.
+func (r *Reranker) calculateRelevance(query string, result SearchResult) float64 {
+	// Simple relevance: count query terms in result content
+	queryTerms := tokenize(query)
+	contentTerms := tokenize(result.Abstract)
+
+	matchCount := 0
+	for _, qt := range queryTerms {
+		for _, ct := range contentTerms {
+			if qt == ct {
+				matchCount++
+				break
+			}
+		}
+	}
+
+	if len(queryTerms) == 0 {
+		return 0
+	}
+
+	return float64(matchCount) / float64(len(queryTerms))
+}
+
+// RetrieveWithRerank performs hybrid retrieval with reranking.
+func (hr *HybridRetriever) RetrieveWithRerank(ctx context.Context, query string, sessionID string, accessCount int, lastAccessTime time.Time, limit int, reranker *Reranker) ([]SearchResult, error) {
+	// First pass: hybrid retrieval
+	results, err := hr.Retrieve(ctx, query, sessionID, accessCount, lastAccessTime, limit*3)
+	if err != nil {
+		return nil, err
+	}
+
+	// Second pass: reranking
+	if reranker != nil && reranker.enabled {
+		results, err = reranker.Rerank(ctx, query, results)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	// Limit final results
+	if limit > 0 && len(results) > limit {
+		results = results[:limit]
+	}
+
+	return results, nil
 }

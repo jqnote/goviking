@@ -256,7 +256,7 @@ func sessionCmd() *cobra.Command {
 			}
 
 			ctx := context.Background()
-			session, err := c.GetSession(ctx, args[0])
+			session, err := c.GetSession(ctx, args[0], true)
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 				os.Exit(1)
@@ -285,7 +285,7 @@ func sessionCmd() *cobra.Command {
 			}
 
 			ctx := context.Background()
-			session, err := c.GetSession(ctx, args[0])
+			session, err := c.GetSession(ctx, args[0], true)
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 				os.Exit(1)

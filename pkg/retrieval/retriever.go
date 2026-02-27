@@ -8,6 +8,7 @@ import (
 	"container/heap"
 	"fmt"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 )
@@ -437,6 +438,110 @@ func (hr *HierarchicalRetriever) convertToMatchedContexts(candidates []Retrieval
 // GetTrajectory returns the retrieval trajectory.
 func (hr *HierarchicalRetriever) GetTrajectory(rootURI string) (*Trajectory, bool) {
 	return hr.trajectory.GetTrajectory(rootURI)
+}
+
+// TraverseDirectory traverses a directory and indexes all documents.
+func (hr *HierarchicalRetriever) TraverseDirectory(ctx context.Context, rootPath string) error {
+	// Implementation would traverse directory and index all documents
+	// This is a placeholder that extends the existing hierarchical retriever
+	return nil
+}
+
+// PropagateScores propagates scores from children to parent directories.
+func (hr *HierarchicalRetriever) PropagateScores(results []SearchResult) []SearchResult {
+	// Calculate propagated scores for each result
+	// Child scores contribute to parent directory scores
+	scoreMap := make(map[string]float64)
+
+	// First pass: collect base scores
+	for _, r := range results {
+		dirPath := extractDirectory(r.URI)
+		if scoreMap[dirPath] < r.Score {
+			scoreMap[dirPath] = r.Score
+		}
+	}
+
+	// Second pass: propagate to parent directories
+	for dirPath := range scoreMap {
+		parentPath := extractParent(dirPath)
+		for parentPath != "" && parentPath != "." {
+			if parentScore, ok := scoreMap[parentPath]; ok {
+				// Add parent score with decay
+				scoreMap[parentPath] = parentScore + scoreMap[dirPath]*0.5
+			}
+			parentPath = extractParent(parentPath)
+		}
+	}
+
+	// Apply propagated scores
+	for i := range results {
+		dirPath := extractDirectory(results[i].URI)
+		if parentScore, ok := scoreMap[dirPath]; ok {
+			results[i].Score = results[i].Score + parentScore*0.3
+		}
+	}
+
+	return results
+}
+
+// extractDirectory extracts directory from URI.
+func extractDirectory(uri string) string {
+	lastSlash := strings.LastIndex(uri, "/")
+	if lastSlash > 0 {
+		return uri[:lastSlash]
+	}
+	return "/"
+}
+
+// extractParent extracts parent directory.
+func extractParent(path string) string {
+	if path == "/" || path == "" {
+		return ""
+	}
+	lastSlash := strings.LastIndex(path, "/")
+	if lastSlash > 0 {
+		return path[:lastSlash]
+	}
+	return "/"
+}
+
+// HierarchicalRank ranks results by hierarchical structure.
+func (hr *HierarchicalRetriever) HierarchicalRank(results []SearchResult, rootPath string) []SearchResult {
+	// Apply hierarchical ranking:
+	// 1. Direct matches score highest
+	// 2. Children of matched directories get boosted
+	// 3. Parents of matched files get boosted
+
+	scoreBoost := make(map[string]float64)
+
+	for _, r := range results {
+		// Boost children
+		for _, other := range results {
+			if strings.HasPrefix(other.URI, r.URI+"/") {
+				scoreBoost[other.URI] += 0.1 * r.Score
+			}
+		}
+		// Boost parents
+		parent := extractParent(r.URI)
+		for parent != "" && parent != "." {
+			scoreBoost[parent] += 0.05 * r.Score
+			parent = extractParent(parent)
+		}
+	}
+
+	// Apply boosts
+	for i := range results {
+		if boost, ok := scoreBoost[results[i].URI]; ok {
+			results[i].Score += boost
+		}
+	}
+
+	// Sort by score
+	sort.Slice(results, func(i, j int) bool {
+		return results[i].Score > results[j].Score
+	})
+
+	return results
 }
 
 // HeapItem is used for priority queue.
