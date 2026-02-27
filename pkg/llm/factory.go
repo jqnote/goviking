@@ -15,6 +15,8 @@ const (
 	ProviderOpenAI ProviderType = "openai"
 	// ProviderAnthropic represents Anthropic.
 	ProviderAnthropic ProviderType = "anthropic"
+	// ProviderSiliconFlow represents SiliconFlow (硅基流动).
+	ProviderSiliconFlow ProviderType = "siliconflow"
 )
 
 // Config holds LLM provider configuration.
@@ -32,6 +34,12 @@ func NewProvider(config Config) (Provider, error) {
 		return NewOpenAIProvider(config.APIKey, config.BaseURL, config.Model), nil
 	case ProviderAnthropic:
 		return NewAnthropicProvider(config.APIKey, config.Model), nil
+	case ProviderSiliconFlow:
+		baseURL := config.BaseURL
+		if baseURL == "" {
+			baseURL = DefaultSiliconFlowBaseURL
+		}
+		return NewSiliconFlowProvider(config.APIKey, config.Model), nil
 	default:
 		return nil, fmt.Errorf("unknown provider type: %s", config.Type)
 	}
